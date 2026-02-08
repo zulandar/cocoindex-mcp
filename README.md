@@ -13,7 +13,7 @@ Add semantic code search to any project via [CocoIndex](https://cocoindex.io) + 
 From your project's root directory:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/ctrower/cocoindex-mcp/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/zulandar/cocoindex-mcp/main/install.sh | bash
 ```
 
 The installer will:
