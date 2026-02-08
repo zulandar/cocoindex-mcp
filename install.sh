@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_URL="https://raw.githubusercontent.com/zulandar/cocoindex-mcp/main"
+REPO_URL="https://raw.githubusercontent.com/zulandar/cocoindex-mcp/refs/heads/main"
 TEMPLATES=("docker-compose.yml" "main.py" "mcp_server.py" "requirements.txt" ".gitignore" ".env" "cocoindex.yaml")
 
 # Default exclude patterns — common dirs/files to skip
