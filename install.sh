@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# When piped via curl | bash, stdin is the script itself.
+# Reopen stdin from the terminal so interactive prompts work.
+exec < /dev/tty
+
 REPO_URL="https://raw.githubusercontent.com/zulandar/cocoindex-mcp/refs/heads/main"
 TEMPLATES=("docker-compose.yml" "main.py" "mcp_server.py" "requirements.txt" ".gitignore" ".env" "cocoindex.yaml")
 
@@ -242,31 +246,33 @@ fi
 info "Creating cocoindex/ directory..."
 mkdir -p cocoindex
 
-# Build YAML pattern strings
-INCLUDED_YAML=""
-for pat in "${INCLUDED[@]}"; do
-    INCLUDED_YAML+="    - \"$pat\"\n"
-done
-
-EXCLUDED_YAML=""
-for pat in "${DEFAULT_EXCLUDES[@]}"; do
-    EXCLUDED_YAML+="    - \"$pat\"\n"
-done
-
 # Fetch and process templates
 for tmpl in "${TEMPLATES[@]}"; do
     info "Fetching template: $tmpl"
+
+    # Generate cocoindex.yaml directly instead of sed substitution
+    if [ "$tmpl" = "cocoindex.yaml" ]; then
+        {
+            echo "project: $PROJECT_NAME"
+            echo "port: $PORT"
+            echo "patterns:"
+            echo "  included:"
+            for pat in "${INCLUDED[@]}"; do
+                echo "    - \"$pat\""
+            done
+            echo "  excluded:"
+            for pat in "${DEFAULT_EXCLUDES[@]}"; do
+                echo "    - \"$pat\""
+            done
+        } > "cocoindex/$tmpl"
+        continue
+    fi
+
     content=$(curl -fsSL "${REPO_URL}/templates/${tmpl}")
 
     # Substitute placeholders
     content="${content//\{\{PROJECT\}\}/$PROJECT_NAME}"
     content="${content//\{\{PORT\}\}/$PORT}"
-
-    # For cocoindex.yaml, handle multiline pattern substitution
-    if [ "$tmpl" = "cocoindex.yaml" ]; then
-        content=$(echo "$content" | sed "s|{{INCLUDED_PATTERNS}}|$(echo -e "$INCLUDED_YAML" | sed 's/|/\\|/g')|")
-        content=$(echo "$content" | sed "s|{{EXCLUDED_PATTERNS}}|$(echo -e "$EXCLUDED_YAML" | sed 's/|/\\|/g')|")
-    fi
 
     echo "$content" > "cocoindex/$tmpl"
 done
