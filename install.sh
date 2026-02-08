@@ -217,7 +217,7 @@ if ! confirm "Use these patterns?"; then
     IFS=',' read -ra INCLUDED <<< "$custom_included"
     # Trim whitespace
     for i in "${!INCLUDED[@]}"; do
-        INCLUDED[$i]="$(echo "${INCLUDED[$i]}" | xargs)"
+        INCLUDED[i]="$(echo "${INCLUDED[i]}" | xargs)"
     done
 
     echo ""
@@ -227,7 +227,7 @@ if ! confirm "Use these patterns?"; then
     if [ -n "$custom_excluded" ]; then
         IFS=',' read -ra DEFAULT_EXCLUDES <<< "$custom_excluded"
         for i in "${!DEFAULT_EXCLUDES[@]}"; do
-            DEFAULT_EXCLUDES[$i]="$(echo "${DEFAULT_EXCLUDES[$i]}" | xargs)"
+            DEFAULT_EXCLUDES[i]="$(echo "${DEFAULT_EXCLUDES[i]}" | xargs)"
         done
     fi
 fi
