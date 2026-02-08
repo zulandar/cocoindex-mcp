@@ -82,12 +82,17 @@ def search(pool: ConnectionPool, query: str, top_k: int = 5):
         with conn.cursor() as cur:
             cur.execute(
                 f"""
-                SELECT filename, code, embedding <=> %s::vector AS distance
+                SELECT filename, location, code, embedding <=> %s::vector AS distance
                 FROM {table_name} ORDER BY distance LIMIT %s
                 """,
                 (query_vector, top_k),
             )
             return [
-                {"filename": row[0], "code": row[1], "score": round(1.0 - row[2], 4)}
+                {
+                    "filename": row[0],
+                    "location": str(row[1]) if row[1] else "",
+                    "code": row[2],
+                    "score": round(1.0 - row[3], 4),
+                }
                 for row in cur.fetchall()
             ]
