@@ -73,6 +73,7 @@ if [ -z "$PYTHON_CMD" ]; then
     # Detect OS and suggest install command
     INSTALL_CMD=""
     if [ -f /etc/os-release ]; then
+        # shellcheck source=/dev/null
         . /etc/os-release
         case "$ID" in
             ubuntu|debian)
