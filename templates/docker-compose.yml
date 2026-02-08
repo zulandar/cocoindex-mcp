@@ -1,0 +1,20 @@
+services:
+  cocoindex-postgres:
+    image: pgvector/pgvector:pg16
+    container_name: {{PROJECT}}_cocoindex_postgres
+    environment:
+      POSTGRES_USER: cocoindex
+      POSTGRES_PASSWORD: cocoindex
+      POSTGRES_DB: cocoindex
+    ports:
+      - "{{PORT}}:5432"
+    volumes:
+      - cocoindex_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cocoindex -d cocoindex"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  cocoindex_data:

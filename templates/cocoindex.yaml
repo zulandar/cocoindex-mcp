@@ -1,0 +1,7 @@
+project: {{PROJECT}}
+port: {{PORT}}
+patterns:
+  included:
+{{INCLUDED_PATTERNS}}
+  excluded:
+{{EXCLUDED_PATTERNS}}
