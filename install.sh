@@ -286,7 +286,7 @@ if $INSTALL_HOOK; then
     HOOK_FILE=".git/hooks/post-commit"
     HOOK_CONTENT="
 # cocoindex auto-update
-(cd \"$(pwd)/cocoindex\" && .venv/bin/cocoindex update main &>/dev/null &)"
+(cd \"$(pwd)/cocoindex\" && .venv/bin/cocoindex update main.py &>/dev/null &)"
 
     if [ -f "$HOOK_FILE" ]; then
         # Append if hook exists and doesn't already have cocoindex
@@ -338,8 +338,8 @@ info "Postgres is ready."
 
 info "Running initial index (this may take a while on first run)..."
 cd cocoindex
-.venv/bin/cocoindex setup
-.venv/bin/cocoindex update main
+.venv/bin/cocoindex setup main.py -f
+.venv/bin/cocoindex update main.py
 cd ..
 
 info "Initial index complete."
