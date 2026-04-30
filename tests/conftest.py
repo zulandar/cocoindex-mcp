@@ -101,4 +101,7 @@ def mock_pool_and_embedder(mcp_server_module):
     mcp_server_module._pool = mock_pool
     mcp_server_module._embedder = mock_embedder
 
-    return mock_conn, mock_embedder
+    yield mock_conn, mock_embedder
+
+    mcp_server_module._pool = None
+    mcp_server_module._embedder = None

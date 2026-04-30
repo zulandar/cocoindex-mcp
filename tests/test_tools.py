@@ -29,6 +29,7 @@ class TestSearchCode:
 
         assert len(results) == 1
         assert results[0]["code"] == "def main():\n    pass\n"
+        assert "snippet" in results[0]
 
     async def test_min_score_filters(self, mcp_server_module, mock_pool_and_embedder):
         mock_conn, _ = mock_pool_and_embedder
