@@ -1,8 +1,22 @@
-import os
+"""CocoIndex flow for code embedding (v1.0.2)."""
+from __future__ import annotations
 
+import os
+import pathlib
+from dataclasses import dataclass
+from typing import Annotated, AsyncIterator
+
+import asyncpg
 import yaml
-import cocoindex
-from psycopg_pool import ConnectionPool
+from numpy.typing import NDArray
+
+import cocoindex as coco
+from cocoindex.connectors import localfs, postgres
+from cocoindex.ops.sentence_transformers import SentenceTransformerEmbedder
+from cocoindex.ops.text import RecursiveSplitter, detect_code_language
+from cocoindex.resources.chunk import Chunk
+from cocoindex.resources.file import FileLike, PatternFilePathMatcher
+from cocoindex.resources.id import IdGenerator
 
 
 def load_config():
@@ -12,87 +26,99 @@ def load_config():
 
 
 CONFIG = load_config()
+DATABASE_URL = os.environ["POSTGRES_URL"]
+TABLE_NAME = "code_embeddings"
+PG_SCHEMA_NAME = f"{CONFIG['project']}_cocoindex"
+EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+
+PG_DB = coco.ContextKey[asyncpg.Pool]("code_embedding_db")
+EMBEDDER = coco.ContextKey[SentenceTransformerEmbedder]("embedder", detect_change=True)
+
+_splitter = RecursiveSplitter()
 
 
-@cocoindex.op.function()
-def extract_extension(filename: str) -> str:
-    return os.path.splitext(filename)[1]
+@dataclass
+class CodeEmbedding:
+    id: int
+    filename: str
+    code: str
+    embedding: Annotated[NDArray, EMBEDDER]
+    start_line: int
+    end_line: int
 
 
-@cocoindex.transform_flow()
-def code_to_embedding(text: cocoindex.DataSlice[str]) -> cocoindex.DataSlice[list[float]]:
-    return text.transform(
-        cocoindex.functions.SentenceTransformerEmbed(
-            model="sentence-transformers/all-MiniLM-L6-v2",
-        )
+@coco.lifespan
+async def coco_lifespan(builder: coco.EnvironmentBuilder) -> AsyncIterator[None]:
+    async with await asyncpg.create_pool(DATABASE_URL) as pool:
+        builder.provide(PG_DB, pool)
+        builder.provide(EMBEDDER, SentenceTransformerEmbedder(EMBED_MODEL))
+        yield
+
+
+@coco.fn
+async def process_chunk(
+    chunk: Chunk,
+    filename: pathlib.PurePath,
+    id_gen: IdGenerator,
+    table: postgres.TableTarget[CodeEmbedding],
+) -> None:
+    embedding = await coco.use_context(EMBEDDER).embed(chunk.text)
+    table.declare_row(
+        row=CodeEmbedding(
+            id=await id_gen.next_id(chunk.text),
+            filename=str(filename),
+            code=chunk.text,
+            embedding=embedding,
+            start_line=chunk.start.line,
+            end_line=chunk.end.line,
+        ),
     )
 
 
-@cocoindex.flow_def(name="CodeEmbedding")
-def code_embedding_flow(
-    flow_builder: cocoindex.FlowBuilder, data_scope: cocoindex.DataScope
-):
-    data_scope["files"] = flow_builder.add_source(
-        cocoindex.sources.LocalFile(
-            path="..",
+@coco.fn(memo=True)
+async def process_file(
+    file: FileLike,
+    table: postgres.TableTarget[CodeEmbedding],
+) -> None:
+    text = await file.read_text()
+    language = detect_code_language(filename=str(file.file_path.path.name))
+    chunks = _splitter.split(
+        text,
+        chunk_size=1000,
+        min_chunk_size=300,
+        chunk_overlap=300,
+        language=language,
+    )
+    id_gen = IdGenerator()
+    await coco.map(process_chunk, chunks, file.file_path.path, id_gen, table)
+
+
+@coco.fn
+async def app_main(sourcedir: pathlib.Path) -> None:
+    target_table = await postgres.mount_table_target(
+        PG_DB,
+        table_name=TABLE_NAME,
+        table_schema=await postgres.TableSchema.from_class(
+            CodeEmbedding,
+            primary_key=["id"],
+        ),
+        pg_schema_name=PG_SCHEMA_NAME,
+    )
+    target_table.declare_vector_index(column="embedding")
+
+    files = localfs.walk_dir(
+        sourcedir,
+        recursive=True,
+        path_matcher=PatternFilePathMatcher(
             included_patterns=CONFIG["patterns"]["included"],
             excluded_patterns=CONFIG["patterns"]["excluded"],
-        )
+        ),
     )
-
-    code_embeddings = data_scope.add_collector()
-
-    with data_scope["files"].row() as file:
-        file["extension"] = file["filename"].transform(extract_extension)
-        file["chunks"] = file["content"].transform(
-            cocoindex.functions.SplitRecursively(),
-            language=file["extension"],
-            chunk_size=1000,
-            chunk_overlap=300,
-        )
-
-        with file["chunks"].row() as chunk:
-            chunk["embedding"] = chunk["text"].call(code_to_embedding)
-            code_embeddings.collect(
-                filename=file["filename"],
-                location=chunk["location"],
-                code=chunk["text"],
-                embedding=chunk["embedding"],
-            )
-
-    code_embeddings.export(
-        "code_embeddings",
-        cocoindex.storages.Postgres(),
-        primary_key_fields=["filename", "location"],
-        vector_indexes=[
-            cocoindex.VectorIndexDef(
-                field_name="embedding",
-                metric=cocoindex.VectorSimilarityMetric.COSINE_SIMILARITY,
-            )
-        ],
-    )
+    await coco.mount_each(process_file, files.items(), target_table)
 
 
-def search(pool: ConnectionPool, query: str, top_k: int = 5):
-    table_name = cocoindex.utils.get_target_storage_default_name(
-        code_embedding_flow, "code_embeddings"
-    )
-    query_vector = code_to_embedding.eval(query)
-    with pool.connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"""
-                SELECT filename, location, code, embedding <=> %s::vector AS distance
-                FROM {table_name} ORDER BY distance LIMIT %s
-                """,
-                (query_vector, top_k),
-            )
-            return [
-                {
-                    "filename": row[0],
-                    "location": str(row[1]) if row[1] else "",
-                    "code": row[2],
-                    "score": round(1.0 - row[3], 4),
-                }
-                for row in cur.fetchall()
-            ]
+app = coco.App(
+    coco.AppConfig(name=f"{CONFIG['project']}_cocoindex"),
+    app_main,
+    sourcedir=pathlib.Path(__file__).parent.parent,
+)
