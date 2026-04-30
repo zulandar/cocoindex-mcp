@@ -6,7 +6,7 @@ set -euo pipefail
 exec < /dev/tty
 
 REPO_URL="https://raw.githubusercontent.com/zulandar/cocoindex-mcp/refs/heads/main"
-TEMPLATES=("docker-compose.yml" "main.py" "mcp_server.py" "requirements.txt" ".gitignore" ".env" "cocoindex.yaml")
+TEMPLATES=("docker-compose.yml" "main.py" "mcp_server.py" "requirements.txt" ".gitignore" ".env")
 
 # Default exclude patterns — common dirs/files to skip
 DEFAULT_EXCLUDES=(".git" "node_modules" ".venv" "venv" "vendor" "dist" "build" "__pycache__" "cocoindex" ".env" ".DS_Store")
@@ -251,24 +251,6 @@ mkdir -p cocoindex
 for tmpl in "${TEMPLATES[@]}"; do
     info "Fetching template: $tmpl"
 
-    # Generate cocoindex.yaml directly instead of sed substitution
-    if [ "$tmpl" = "cocoindex.yaml" ]; then
-        {
-            echo "project: $PROJECT_NAME"
-            echo "port: $PORT"
-            echo "patterns:"
-            echo "  included:"
-            for pat in "${INCLUDED[@]}"; do
-                echo "    - \"$pat\""
-            done
-            echo "  excluded:"
-            for pat in "${DEFAULT_EXCLUDES[@]}"; do
-                echo "    - \"$pat\""
-            done
-        } > "cocoindex/$tmpl"
-        continue
-    fi
-
     content=$(curl -fsSL "${REPO_URL}/templates/${tmpl}")
 
     # Substitute placeholders
@@ -277,6 +259,21 @@ for tmpl in "${TEMPLATES[@]}"; do
 
     echo "$content" > "cocoindex/$tmpl"
 done
+
+# Generate cocoindex.yaml with v1.0-compatible glob patterns
+{
+    echo "project: $PROJECT_NAME"
+    echo "port: $PORT"
+    echo "patterns:"
+    echo "  included:"
+    for pat in "${INCLUDED[@]}"; do
+        echo "    - \"**/$pat\""
+    done
+    echo "  excluded:"
+    for pat in "${DEFAULT_EXCLUDES[@]}"; do
+        echo "    - \"**/$pat\""
+    done
+} > "cocoindex/cocoindex.yaml"
 
 info "Files created."
 
