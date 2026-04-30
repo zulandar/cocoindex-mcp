@@ -332,6 +332,10 @@ until docker compose -f cocoindex/docker-compose.yml exec -T cocoindex-postgres 
 done
 info "Postgres is ready."
 
+info "Enabling pgvector extension..."
+docker compose -f cocoindex/docker-compose.yml exec -T cocoindex-postgres \
+    psql -U cocoindex -d cocoindex -c 'CREATE EXTENSION IF NOT EXISTS vector;' >/dev/null
+
 # ─── Step 10: Run initial index ──────────────────────────────────────────────
 
 info "Running initial index (this may take a while on first run)..."
