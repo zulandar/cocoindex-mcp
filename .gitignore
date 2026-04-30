@@ -2,3 +2,7 @@ docs/plans/
 __pycache__/
 *.pyc
 *.pyo
+.pytest_cache/
+.venv/
+.mypy_cache/
+*.egg-info/
