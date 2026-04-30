@@ -1,7 +1,7 @@
-cocoindex
-python-dotenv
-psycopg[binary]
-psycopg-pool
-mcp
-pyyaml
-sentence-transformers
+cocoindex[postgres,sentence_transformers]==1.0.2
+asyncpg~=0.31
+pgvector~=0.4
+numpy~=2.4
+mcp~=1.27
+python-dotenv~=1.2
+pyyaml~=6.0
