@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+import re
 from dataclasses import dataclass
 from typing import Annotated, AsyncIterator
 
@@ -19,10 +20,20 @@ from cocoindex.resources.file import FileLike, PatternFilePathMatcher
 from cocoindex.resources.id import IdGenerator
 
 
+_PROJECT_NAME_RE = re.compile(r"^[a-z0-9_]+$")
+
+
 def load_config():
     config_path = os.path.join(os.path.dirname(__file__), "cocoindex.yaml")
     with open(config_path) as f:
-        return yaml.safe_load(f)
+        config = yaml.safe_load(f)
+    project = config.get("project", "")
+    if not _PROJECT_NAME_RE.fullmatch(project):
+        raise SystemExit(
+            f"Invalid project name {project!r} in cocoindex.yaml — "
+            f"only [a-z0-9_] allowed."
+        )
+    return config
 
 
 CONFIG = load_config()

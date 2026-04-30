@@ -1,4 +1,5 @@
 """CocoIndex MCP server for semantic code search (v1.0.2)."""
+import asyncio
 import os
 import sys
 
@@ -34,6 +35,7 @@ DATABASE_URL = os.environ["POSTGRES_URL"]
 mcp = FastMCP(f"{CONFIG['project']}_cocoindex")
 
 _pool: asyncpg.Pool | None = None
+_pool_lock = asyncio.Lock()
 _embedder: SentenceTransformerEmbedder | None = None
 
 
@@ -43,8 +45,9 @@ async def _init_conn(conn):
 
 async def _get_pool() -> asyncpg.Pool:
     global _pool
-    if _pool is None:
-        _pool = await asyncpg.create_pool(DATABASE_URL, init=_init_conn)
+    async with _pool_lock:
+        if _pool is None:
+            _pool = await asyncpg.create_pool(DATABASE_URL, init=_init_conn)
     return _pool
 
 
