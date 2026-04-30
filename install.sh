@@ -257,7 +257,7 @@ for tmpl in "${TEMPLATES[@]}"; do
     content="${content//\{\{PROJECT\}\}/$PROJECT_NAME}"
     content="${content//\{\{PORT\}\}/$PORT}"
 
-    echo "$content" > "cocoindex/$tmpl"
+    printf '%s\n' "$content" > "cocoindex/$tmpl"
 done
 
 # Generate cocoindex.yaml with v1.0-compatible glob patterns
@@ -336,7 +336,6 @@ info "Postgres is ready."
 
 info "Running initial index (this may take a while on first run)..."
 cd cocoindex
-.venv/bin/cocoindex setup main.py -f
 .venv/bin/cocoindex update main.py
 cd ..
 
@@ -351,7 +350,7 @@ SERVER_NAME="${PROJECT_NAME}_cocoindex"
 info "Configuring Claude MCP settings..."
 
 # Use Python (already verified available) to handle JSON merge
-$PYTHON_CMD - "$MCP_JSON" "$SERVER_NAME" "$COCOINDEX_DIR" << 'PYEOF'
+MCP_STATUS=$($PYTHON_CMD - "$MCP_JSON" "$SERVER_NAME" "$COCOINDEX_DIR" << 'PYEOF'
 import json
 import sys
 
@@ -361,7 +360,7 @@ cocoindex_dir = sys.argv[3]
 
 server_config = {
     "command": f"{cocoindex_dir}/.venv/bin/python",
-    "args": [f"{cocoindex_dir}/mcp_server.py"]
+    "args": [f"{cocoindex_dir}/mcp_server.py"],
 }
 
 try:
@@ -382,22 +381,16 @@ else:
         f.write("\n")
     print("configured")
 PYEOF
+)
 
-MCP_RESULT=$?
-if [ $MCP_RESULT -eq 0 ]; then
-    info "MCP server '${SERVER_NAME}' added to ${MCP_JSON}"
-else
-    warn "Could not update .mcp.json automatically. Add this manually:"
-    echo ""
-    echo "  {"
-    echo "    \"mcpServers\": {"
-    echo "      \"${SERVER_NAME}\": {"
-    echo "        \"command\": \"${COCOINDEX_DIR}/.venv/bin/python\","
-    echo "        \"args\": [\"${COCOINDEX_DIR}/mcp_server.py\"]"
-    echo "      }"
-    echo "    }"
-    echo "  }"
-fi
+case "$MCP_STATUS" in
+    configured)
+        info "MCP server '${SERVER_NAME}' added to ${MCP_JSON}" ;;
+    already_configured)
+        info "MCP server '${SERVER_NAME}' already present in ${MCP_JSON} — no change" ;;
+    *)
+        warn "Unexpected MCP setup result: '${MCP_STATUS}'" ;;
+esac
 
 echo ""
 echo "╔══════════════════════════════════════════════╗"
