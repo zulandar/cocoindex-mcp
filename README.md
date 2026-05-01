@@ -39,7 +39,7 @@ After install, the MCP server is automatically configured in `.mcp.json` at your
 ### Manual re-index
 
 ```bash
-cd cocoindex && .venv/bin/cocoindex update main
+cd cocoindex && .venv/bin/cocoindex update main.py
 ```
 
 ### Edit indexed patterns

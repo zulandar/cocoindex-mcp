@@ -1,35 +1,37 @@
 """Fixtures for testing mcp_server.py without its heavy dependencies."""
 
-import importlib
 import importlib.util
 import os
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "templates"
 MCP_SERVER_PATH = TEMPLATE_DIR / "mcp_server.py"
 
-# Modules that mcp_server.py imports but aren't available in CI
+# Modules mcp_server.py imports that aren't available in CI
 MOCKED_MODULES = [
+    "asyncpg",
     "cocoindex",
-    "cocoindex.utils",
+    "cocoindex.ops",
+    "cocoindex.ops.sentence_transformers",
     "dotenv",
+    "main",
     "mcp",
     "mcp.server",
     "mcp.server.fastmcp",
-    "psycopg_pool",
-    "main",
+    "pgvector",
+    "pgvector.asyncpg",
 ]
 
 VALID_CONFIG = {
     "project": "testproject",
     "port": 5434,
     "patterns": {
-        "included": ["*.py"],
-        "excluded": [".git"],
+        "included": ["**/*.py"],
+        "excluded": ["**/.git"],
     },
 }
 
@@ -38,40 +40,28 @@ VALID_CONFIG = {
 def mcp_server_module():
     """Import templates/mcp_server.py with all heavy deps mocked out."""
     saved = {}
-    injected = {}
-
-    # Save any pre-existing entries so we can restore them
     for mod_name in MOCKED_MODULES:
         if mod_name in sys.modules:
             saved[mod_name] = sys.modules[mod_name]
 
-    # Build mock modules
     for mod_name in MOCKED_MODULES:
-        mock = MagicMock()
-        sys.modules[mod_name] = mock
-        injected[mod_name] = mock
+        sys.modules[mod_name] = MagicMock()
 
-    # Make FastMCP().tool() a passthrough decorator so decorated fns stay callable
     fast_mcp_instance = MagicMock()
     fast_mcp_instance.tool.return_value = lambda fn: fn
     sys.modules["mcp.server.fastmcp"].FastMCP.return_value = fast_mcp_instance
-
-    # Make dotenv.load_dotenv a no-op
     sys.modules["dotenv"].load_dotenv = MagicMock()
 
-    # Mock cocoindex.init and cocoindex.utils
-    sys.modules["cocoindex"].init = MagicMock()
-    sys.modules["cocoindex"].utils.get_target_storage_default_name.return_value = (
-        "test_table"
-    )
+    # main.py exports we depend on
+    sys.modules["main"].EMBED_MODEL = "test-model"
+    sys.modules["main"].PG_SCHEMA_NAME = "testproject_cocoindex"
+    sys.modules["main"].TABLE_NAME = "code_embeddings"
 
-    # Set env var that mcp_server.py reads at module level
-    env_key = "COCOINDEX_DATABASE_URL"
+    env_key = "POSTGRES_URL"
     had_env = env_key in os.environ
     old_env = os.environ.get(env_key)
     os.environ[env_key] = "postgresql://test:test@localhost:5432/test"
 
-    # Patch yaml.safe_load to return valid config, and open() to succeed
     with (
         patch("yaml.safe_load", return_value=VALID_CONFIG),
         patch("builtins.open", MagicMock()),
@@ -82,13 +72,11 @@ def mcp_server_module():
 
     yield module
 
-    # Cleanup env
     if had_env:
         os.environ[env_key] = old_env
     else:
         os.environ.pop(env_key, None)
 
-    # Cleanup sys.modules
     for mod_name in MOCKED_MODULES:
         if mod_name in saved:
             sys.modules[mod_name] = saved[mod_name]
@@ -97,19 +85,23 @@ def mcp_server_module():
 
 
 @pytest.fixture()
-def mock_pool(mcp_server_module):
-    """Provide a mock connection pool whose cursor returns configurable rows."""
+def mock_pool_and_embedder(mcp_server_module):
+    """Mocks asyncpg pool and embedder for async tests."""
     mock_conn = MagicMock()
-    mock_cur = MagicMock()
+    mock_conn.fetch = AsyncMock()
 
-    # Wire up context managers: pool.connection() -> conn, conn.cursor() -> cur
-    mcp_server_module.pool.connection.return_value.__enter__ = MagicMock(
-        return_value=mock_conn
-    )
-    mcp_server_module.pool.connection.return_value.__exit__ = MagicMock(
-        return_value=False
-    )
-    mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cur)
-    mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+    mock_pool = MagicMock()
+    mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_pool.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
 
-    return mock_cur
+    mock_embedder = MagicMock()
+    mock_embedder.embed = AsyncMock(return_value=[0.0] * 384)
+
+    # Inject lazy singletons directly to bypass _get_pool() / _get_embedder()
+    mcp_server_module._pool = mock_pool
+    mcp_server_module._embedder = mock_embedder
+
+    yield mock_conn, mock_embedder
+
+    mcp_server_module._pool = None
+    mcp_server_module._embedder = None
