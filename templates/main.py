@@ -5,11 +5,11 @@ import os
 import pathlib
 import re
 from dataclasses import dataclass
-from typing import Annotated, AsyncIterator
+from typing import Annotated, Any, AsyncIterator
 
 import asyncpg
+import numpy as np
 import yaml
-from numpy.typing import NDArray
 
 import cocoindex as coco
 from cocoindex.connectors import localfs, postgres
@@ -53,7 +53,9 @@ class CodeEmbedding:
     id: int
     filename: str
     code: str
-    embedding: Annotated[NDArray, EMBEDDER]
+    # numpy>=2.5 makes numpy.typing.NDArray a PEP 695 TypeAliasType, which
+    # cocoindex's type analysis can't resolve to np.ndarray — spell it out.
+    embedding: Annotated[np.ndarray[Any, np.dtype[np.float32]], EMBEDDER]
     start_line: int
     end_line: int
 
