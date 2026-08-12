@@ -1,3 +1,7 @@
+# Pinned so the compose project does not fall back to the cocoindex/ directory
+# name, which is identical for every repo on the machine.
+name: {{PROJECT}}_cocoindex
+
 services:
   cocoindex-postgres:
     image: pgvector/pgvector:pg16
@@ -18,3 +22,4 @@ services:
 
 volumes:
   cocoindex_data:
+    name: {{PROJECT}}_cocoindex_data

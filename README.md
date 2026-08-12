@@ -26,8 +26,24 @@ The installer will:
 6. Create a `cocoindex/` directory with all necessary files
 7. Set up a Python venv and install dependencies
 8. Start Postgres (pgvector) via Docker
-9. Run the initial index
-10. Auto-configure `.mcp.json` in your repo root
+9. Clear any index left by a previous install, then enable pgvector
+10. Run the initial index
+11. Auto-configure `.mcp.json` in your repo root
+
+### Re-running the installer
+
+Re-running the installer over an existing `cocoindex/` directory rebuilds the
+index from scratch. It has to: that directory holds `cocoindex.db`, which is
+CocoIndex's only record of what it has already created in Postgres, and
+replacing the directory discards it. The installer therefore drops the
+project's `<project>_cocoindex` schema before indexing, so the two always
+agree. That schema holds nothing but derived embeddings.
+
+Each project also gets its own Compose project (`<project>_cocoindex`) and
+volume (`<project>_cocoindex_data`), so repos on one machine never share a
+database. Installs predating that shared a single volume named
+`cocoindex_cocoindex_data`; once every repo has been re-installed, it is safe to
+reclaim with `docker volume rm cocoindex_cocoindex_data`.
 
 ## Usage
 

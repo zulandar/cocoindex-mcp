@@ -25,6 +25,41 @@ confirm() {
     [[ "$reply" =~ ^[Yy]$ ]]
 }
 
+# cocoindex/cocoindex.db is cocoindex's only record of what it has created in
+# Postgres, and this installer always starts from a fresh one. Postgres data
+# outlives it in a docker volume, so a re-install must clear the old target
+# schema too — otherwise cocoindex sees no prior state, plans a bare
+# CREATE TABLE and aborts with DuplicateTableError. The schema holds only
+# derived embeddings, rebuilt by the initial index below.
+schema_reset_sql() {
+    local project="${1:?schema_reset_sql: project name required}"
+    # Mirrors _PROJECT_NAME_RE in templates/main.py; also keeps the name safe to
+    # interpolate into DDL.
+    [[ "$project" =~ ^[a-z0-9_]+$ ]] || error "Invalid project name: '$project'"
+    # A first install has nothing to drop; keep psql's notices out of the log.
+    printf 'SET client_min_messages TO WARNING;\n'
+    printf 'DROP SCHEMA IF EXISTS "%s_cocoindex" CASCADE;\n' "$project"
+}
+
+# Compose only adopts an existing container by name within its own project.
+# Installs made before the compose file carried an explicit project name were
+# grouped under the cocoindex/ directory name, so their container would collide
+# with `up`. Retire it — the index lives in the volume, not the container.
+remove_conflicting_container() {
+    local name="${1:?remove_conflicting_container: container name required}"
+    local project="${2:?remove_conflicting_container: compose project required}"
+    local owner
+
+    owner=$(docker inspect \
+        -f '{{index .Config.Labels "com.docker.compose.project"}}' \
+        "$name" 2>/dev/null) || return 0
+    [ -n "$owner" ] || return 0
+    [ "$owner" != "$project" ] || return 0
+
+    info "Retiring container '$name' from previous compose project '$owner'."
+    docker rm -f "$name" >/dev/null || error "Could not remove container '$name'."
+}
+
 # ─── Step 1: Confirm directory ────────────────────────────────────────────────
 
 PROJECT_DIR="$(pwd)"
@@ -318,6 +353,8 @@ if ! command -v docker &>/dev/null; then
 fi
 
 info "Starting CocoIndex Postgres..."
+remove_conflicting_container "${PROJECT_NAME}_cocoindex_postgres" \
+    "${PROJECT_NAME}_cocoindex"
 docker compose -f cocoindex/docker-compose.yml up -d
 
 # Wait for healthy
@@ -332,9 +369,18 @@ until docker compose -f cocoindex/docker-compose.yml exec -T cocoindex-postgres 
 done
 info "Postgres is ready."
 
+info "Clearing any index left behind by a previous install..."
+docker compose -f cocoindex/docker-compose.yml exec -T cocoindex-postgres \
+    psql -U cocoindex -d cocoindex -v ON_ERROR_STOP=1 \
+    -c "$(schema_reset_sql "$PROJECT_NAME")" >/dev/null
+
+# Must follow the reset: cocoindex installs pgvector into its own schema, where
+# an unqualified `vector(N)` column type does not resolve. Creating it here — in
+# `public`, after any project schema is gone — is what makes the type reachable.
 info "Enabling pgvector extension..."
 docker compose -f cocoindex/docker-compose.yml exec -T cocoindex-postgres \
-    psql -U cocoindex -d cocoindex -c 'CREATE EXTENSION IF NOT EXISTS vector;' >/dev/null
+    psql -U cocoindex -d cocoindex -v ON_ERROR_STOP=1 \
+    -c 'CREATE EXTENSION IF NOT EXISTS vector;' >/dev/null
 
 # ─── Step 10: Run initial index ──────────────────────────────────────────────
 
